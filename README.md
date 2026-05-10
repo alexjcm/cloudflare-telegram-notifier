@@ -15,24 +15,24 @@ A Cloudflare Worker that consumes build failure events from a queue and sends no
 
 ## Prerequisites
 
--  A Telegram bot created with [@BotFarher](https://t.me/botfather) (get the token).
--  Your Telegram `chat_id` (you can get it from [@myidbot](https://t.me/myidbot)).
--  A producer Worker already configured with an **Event Subscription** (`build.failed`) pointing to the `builds-queue-notifications` queue.
+- A Telegram bot created with [@BotFather](https://t.me/botfather) (get the token).
+- Your Telegram `chat_id` (you can get it from [@myidbot](https://t.me/myidbot)).
+- A producer Worker already configured with an **Event Subscription** (`build.failed`) pointing to the `builds-queue-notifications` queue.
 
 ## Setup
 
-1. ** Install dependencies**
-   ``bash
+1. **Install dependencies**
+   ```bash
    npm install
    ```
 
-2. ** Deploy the Worker for the first time**
-   ``bash
+2. **Deploy the Worker for the first time**
+   ```bash
    npm run deploy
    ```
 
-4. ** Add secrets to Cloudflare** (after first deploy)
-   ``bash
+3. **Add secrets to Cloudflare** (after first deploy)
+   ```bash
    npx wrangler secret put TELEGRAM_BOT_TOKEN
    npx wrangler secret put TELEGRAM_CHAT_ID
    ```
@@ -40,14 +40,14 @@ A Cloudflare Worker that consumes build failure events from a queue and sends no
 ## Deployment
 
 To redeploy after changes:
-``bash
+```bash
 npm run deploy
 ```
 
 ## Testing
 
 1. Start log monitoring:
-   ``bash
+   ```bash
    npx wrangler tail
    ```
 2. Cause a build failure in a Worker that has the event subscription to your queue.
