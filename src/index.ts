@@ -1,59 +1,19 @@
 /**
- * Welcome to Cloudflare Workers!
- *
- * This is a template for a Queue consumer: a Worker that can consume from a
- * Queue: https://developers.cloudflare.com/queues/get-started/
- *
- * - Run `npm run dev`
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run `npm run deploy` to publish your worker in Cloudflare.
- *
- * Bind resources to your worker in `wrangler.jsonc`. After adding bindings, a type definition for the
- * `Env` object can be regenerated with `npm run cf-typegen`.
- *
- * Learn more at https://developers.cloudflare.com/workers/
- */
-
-/**
  * Cloudflare Telegram Notifier - Worker Consumer
  *
- * This Worker listens to a Cloudflare Queue (`builds-queue-notifications`) for
- * build failure events from other Cloudflare Workers. When a failure event is
- * received, it formats the error details and sends a notification message to a
- * Telegram chat using the Bot API.
+ * Consumes `builds-queue-notifications`, receives Cloudflare Worker build
+ * failure events, and sends formatted alerts to Telegram via the Bot API.
  *
+ * Run locally with `npm run dev` at http://localhost:8787/ and deploy with
+ * `npm run deploy`. Configure bindings in `wrangler.jsonc` and regenerate
+ * `Env` types with `npm run cf-typegen` after binding changes.
+ *
+ * @see https://developers.cloudflare.com/workers/
+ * @see https://developers.cloudflare.com/queues/get-started/
  * @see https://core.telegram.org/bots/api#sendmessage
- * @see https://developers.cloudflare.com/queues/
  */
 
-export interface Env {
-    TELEGRAM_BOT_TOKEN: string;
-    TELEGRAM_CHAT_ID: string;
-}
-
-/**
- * The expected structure of a build failure message from the Cloudflare Queue.
- * This matches the event subscription you configured for your Workers.
- */
-interface BuildFailedEvent {
-    type: string;
-    source?: {
-        type: string;
-        workerName?: string;
-    };
-    payload: {
-        buildUuid: string;
-        status: string;
-        buildOutcome: "success" | "failure" | "canceled" | "cancelled";
-        buildTriggerMetadata?: {
-            commitMessage: string;
-            repoName: string;
-        };
-    };
-    metadata?: {
-        eventTimestamp: string;
-    };
-}
+import type { BuildFailedEvent, Env, TelegramApiResponse, TelegramSendResult } from './types';
 
 /**
  * Escapes special characters for Telegram's MarkdownV2 format.
@@ -61,9 +21,7 @@ interface BuildFailedEvent {
  * @see https://core.telegram.org/bots/api#markdownv2-style
  */
 function escapeMarkdownV2(text: string): string {
-    const specialChars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'];
-    const regex = new RegExp(`\\${specialChars.join('|\\')}`, 'g');
-    return text.replace(regex, '\\$&');
+    return text.replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
 }
 
 /**
@@ -75,7 +33,7 @@ function escapeMarkdownV2(text: string): string {
  * @param text The message content to send.
  * @returns A promise that resolves to `true` if the message was sent successfully, `false` otherwise.
  */
-async function sendTelegramMessage(botToken: string, chatId: string, text: string): Promise<boolean> {
+async function sendTelegramMessage(botToken: string, chatId: string, text: string): Promise<TelegramSendResult> {
     const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
 
     const payload = {
@@ -91,32 +49,50 @@ async function sendTelegramMessage(botToken: string, chatId: string, text: strin
             body: JSON.stringify(payload),
         });
 
-        if (!response.ok) {
-            // If the error is a "Conflict" (409), it likely means the message is a duplicate.
-            // We can treat this as a non-critical error and log it.
-            if (response.status === 409) {
-                console.warn(`Telegram API conflict (likely duplicate message): ${await response.text()}`);
-                return true; // Return true to acknowledge and not retry the queue message.
+        const responseText = await response.text();
+        let responseData: TelegramApiResponse | null = null;
+
+        if (responseText) {
+            try {
+                responseData = JSON.parse(responseText) as TelegramApiResponse;
+            } catch {
+                responseData = null;
+            }
+        }
+
+        if (!response.ok || responseData?.ok === false) {
+            const retryAfter = responseData?.parameters?.retry_after;
+            const retryDelaySeconds = typeof retryAfter === 'number' && Number.isFinite(retryAfter) && retryAfter > 0
+                ? Math.ceil(retryAfter)
+                : undefined;
+            const description = responseData?.description ?? (responseText || 'Unknown Telegram API error');
+            const migrateToChatId = responseData?.parameters?.migrate_to_chat_id;
+            const errorCode = responseData?.error_code ?? response.status;
+
+            console.error(`Telegram API error (${errorCode}): ${description}`);
+
+            if (migrateToChatId !== undefined) {
+                console.error(`Telegram API suggested migrate_to_chat_id=${migrateToChatId}.`);
+            }
+            if (retryDelaySeconds !== undefined) {
+                console.warn(`Telegram API requested retry_after=${retryDelaySeconds} seconds.`);
             }
 
-            // For other errors (like 429 rate limiting, 400 bad request), log and return false.
-            const errorText = await response.text();
-            console.error(`Telegram API error (${response.status}): ${errorText}`);
-            return false;
+            return {
+                isSent: false,
+                retryDelaySeconds,
+            };
         }
 
         console.log('Telegram notification sent successfully.');
-        return true;
+        return { isSent: true };
     } catch (error) {
         console.error(`Network or fetch error while sending to Telegram: ${error}`);
-        return false;
+        return { isSent: false };
     }
 }
 
 export default {
-    /**
-     * An optional HTTP fetch handler.
-     */
     async fetch(request: Request, env: Env): Promise<Response> {
         return new Response('Cloudflare Telegram Notifier Worker is running and listening to queue events.');
     },
@@ -142,10 +118,12 @@ export default {
 				`*Worker:* ${escapeMarkdownV2(workerName)}\n` +
 				`*Message:*\n${escapeMarkdownV2(commitMessage)}\n\n`;
 
-			const isSent = await sendTelegramMessage(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, notificationText);
+			const sendResult = await sendTelegramMessage(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, notificationText);
 
-			if (isSent) {
+			if (sendResult.isSent) {
 				message.ack();
+			} else if (sendResult.retryDelaySeconds !== undefined) {
+				message.retry({ delaySeconds: sendResult.retryDelaySeconds });
 			} else {
 				message.retry();
 			}

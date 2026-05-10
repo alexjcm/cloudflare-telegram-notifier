@@ -1,8 +1,13 @@
 # Cloudflare Telegram Notifier
 
+[![Deployed on Cloudflare](https://img.shields.io/badge/Deployed%20on-Cloudflare-F38020?style=flat-square&logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
+[![Cloudflare Workers](https://img.shields.io/badge/Runtime-Cloudflare%20Workers-F38020?style=flat-square&logo=cloudflare&logoColor=white)](https://developers.cloudflare.com/workers/)
+[![TypeScript](https://img.shields.io/badge/Language-TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Telegram Bot](https://img.shields.io/badge/Notifications-Telegram%20Bot-26A5E4?style=flat-square&logo=telegram&logoColor=white)](https://core.telegram.org/bots/api)
+
 A Cloudflare Worker that consumes build failure events from a queue and sends notifications to a Telegram chat.
 
-## 😀 What it does
+## What it does
 
 - Listens to the `builds-queue-notifications` queue.
 - Receives messages when any Worker build fails ( `build.failed` event ).
@@ -39,7 +44,7 @@ To redeploy after changes:
 npm run deploy
 ```
 
-## 😠 Testing
+## Testing
 
 1. Start log monitoring:
    ``bash
@@ -48,6 +53,6 @@ npm run deploy
 2. Cause a build failure in a Worker that has the event subscription to your queue.
 3. Within seconds, you should see logs and receive a notification in Telegram.
 
-## 👄 License
+## License
 
 MIT
