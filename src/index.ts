@@ -1,12 +1,6 @@
 /**
- * Cloudflare Telegram Notifier - Worker Consumer
- *
  * Consumes `builds-queue-notifications`, receives Cloudflare Worker build
  * failure events, and sends formatted alerts to Telegram via the Bot API.
- *
- * Run locally with `npm run dev` at http://localhost:8787/ and deploy with
- * `npm run deploy`. Configure bindings in `wrangler.jsonc` and regenerate
- * `Env` types with `npm run cf-typegen` after binding changes.
  *
  * @see https://developers.cloudflare.com/workers/
  * @see https://developers.cloudflare.com/queues/get-started/
@@ -93,40 +87,35 @@ async function sendTelegramMessage(botToken: string, chatId: string, text: strin
 }
 
 export default {
-    async fetch(request: Request, env: Env): Promise<Response> {
-        return new Response('Cloudflare Telegram Notifier Worker is running and listening to queue events.');
-    },
-
     /**
      * The main queue consumer handler for Cloudflare Queues.
      *
-     * @param batch - A batch of messages from the queue. Type is unknown because
-     *                the actual message structure is determined at runtime.
-     * @param env - The Worker's environment bindings, containing our secrets.
+     * @param batch - A batch of messages from the queue.
+     * @param env - The Worker's environment bindings.
      */
-	async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
-		for (const message of batch.messages) {
-			const eventData = message.body as BuildFailedEvent;
+    async queue(batch: MessageBatch<BuildFailedEvent>, env: Env): Promise<void> {
+        for (const message of batch.messages) {
+            const eventData = message.body;
 
-			const workerName = eventData.source?.workerName ?? 'Unknown Worker';
-			const metadata = eventData.payload?.buildTriggerMetadata;
-			const repoName = metadata?.repoName ?? 'Unknown Repository';
-			const commitMessage = metadata?.commitMessage ?? 'No commit message';
-			
-			const notificationText = `🚨 *Cloudflare Worker Build Failed* 🚨\n\n` +
-				`*Project:* ${escapeMarkdownV2(repoName)}\n` +
-				`*Worker:* ${escapeMarkdownV2(workerName)}\n` +
-				`*Message:*\n${escapeMarkdownV2(commitMessage)}\n\n`;
+            const workerName = eventData.source?.workerName ?? 'Unknown Worker';
+            const metadata = eventData.payload?.buildTriggerMetadata;
+            const repoName = metadata?.repoName ?? 'Unknown Repository';
+            const commitMessage = metadata?.commitMessage ?? 'No commit message';
 
-			const sendResult = await sendTelegramMessage(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, notificationText);
+            const notificationText = `🚨 *Cloudflare Worker Build Failed* 🚨\n\n` +
+                `*Project:* ${escapeMarkdownV2(repoName)}\n` +
+                `*Worker:* ${escapeMarkdownV2(workerName)}\n` +
+                `*Message:*\n${escapeMarkdownV2(commitMessage)}\n\n`;
 
-			if (sendResult.isSent) {
-				message.ack();
-			} else if (sendResult.retryDelaySeconds !== undefined) {
-				message.retry({ delaySeconds: sendResult.retryDelaySeconds });
-			} else {
-				message.retry();
-			}
-		}
-	}
-} satisfies ExportedHandler<Env>;
+            const sendResult = await sendTelegramMessage(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, notificationText);
+
+            if (sendResult.isSent) {
+                message.ack();
+            } else if (sendResult.retryDelaySeconds !== undefined) {
+                message.retry({ delaySeconds: sendResult.retryDelaySeconds });
+            } else {
+                message.retry();
+            }
+        }
+    }
+} satisfies ExportedHandler<Env, BuildFailedEvent>;

@@ -46,12 +46,16 @@ npm run deploy
 
 ## Testing
 
-1. Start log monitoring:
+1. Run the TypeScript check:
+   ```bash
+   npm run typecheck
+   ```
+2. Start log monitoring:
    ```bash
    npx wrangler tail
    ```
-2. Cause a build failure in a Worker that has the event subscription to your queue.
-3. Within seconds, you should see logs and receive a notification in Telegram.
+3. Cause a build failure in a Worker that has the event subscription to your queue.
+4. Within seconds, you should see logs and receive a notification in Telegram.
 
 ## License
 
